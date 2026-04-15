@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* ── Matrix green palette ───────────────────────────── */
+  --mx-bg:      #000000;   /* solid black background     */
+  --mx-surface: #060606;   /* surface cards              */
+  --mx-border:  #0a1a0a;   /* dark edges                 */
+
+  --mx-bright:  #39ff14;   /* neon green — max emphasis  */
+  --mx-green:   #00e533;   /* green matrix — accent      */
+  --mx-mid:     #00aa22;   /* medium green               */
+  --mx-dim:     #006616;   /* dark green — labels        */
+  --mx-muted:   #0d260d;   /* very mild                  */
+
+  --mx-text:    #00cc22;   /* body text                  */
+  --mx-error:   #cc2222;   /* errors only                */
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background-color: var(--mx-bg);
+  color: var(--mx-text);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+  min-height: 100vh;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--mx-bg); }
+::-webkit-scrollbar-thumb { background: var(--mx-dim); border-radius: 2px; }
+
+/* Green glow only */
+.glow {
+  text-shadow: 0 0 6px var(--mx-green), 0 0 18px var(--mx-green);
+}
+.glow-bright {
+  text-shadow: 0 0 8px var(--mx-bright), 0 0 24px var(--mx-bright);
+}
+
+.card {
+  background: var(--mx-surface);
+  border: 1px solid var(--mx-border);
+  border-radius: 2px;
+}
+
+.card-hover {
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.card-hover:hover {
+  border-color: var(--mx-dim);
+  box-shadow: 0 0 10px rgba(0, 200, 40, 0.07);
+}
+
+/* Incoming block — green flash */
+@keyframes block-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+    box-shadow: 0 0 20px rgba(0, 229, 51, 0.35);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    box-shadow: 0 0 0px rgba(0, 229, 51, 0);
+  }
+}
+
+.block-enter {
+  animation: block-enter 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Color matrix placeholder */
+input::placeholder {
+  color: var(--mx-muted);
+  opacity: 1;
+}
+
+/* Scanlines subtiles */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.06) 2px,
+    rgba(0, 0, 0, 0.06) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
