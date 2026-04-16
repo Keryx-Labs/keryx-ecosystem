@@ -527,30 +527,88 @@ function Dashboard({ wallet, onDisconnect }: { wallet: WalletState; onDisconnect
   );
 }
 
+const TX_PAGE_SIZE = 10;
+
 function TxHistory({ address }: { address: string }) {
   const [txs, setTxs] = useState<Array<{ tx_id: string; amount_sompi: number; daa_score: number }>>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    api.address(address)
-      .then((info) => setTxs(info.transactions.slice(0, 20)))
-      .catch(() => {});
-  }, [address]);
+    setLoading(true);
+    api.address(address, TX_PAGE_SIZE, page * TX_PAGE_SIZE)
+      .then((info) => {
+        setTxs(info.transactions);
+        setTotal(info.total_tx_count);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [address, page]);
 
-  if (txs.length === 0) return null;
+  if (total === 0 && !loading) return null;
+
+  const totalPages = Math.ceil(total / TX_PAGE_SIZE);
 
   return (
     <Card>
-      <Label>Transaction history (indexer)</Label>
-      <div className="space-y-1 mt-2 max-h-64 overflow-y-auto">
-        {txs.map((t) => (
-          <div key={t.tx_id} className="flex justify-between items-center text-xs py-0.5 font-mono" style={{ borderBottom: "1px solid var(--mx-border)" }}>
+      <div className="flex items-center justify-between">
+        <Label>Transaction history</Label>
+        {total > 0 && (
+          <span className="text-xs" style={{ color: "var(--mx-dim)" }}>
+            {total.toLocaleString()} txs
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-1 mt-2">
+        {loading ? (
+          <div className="text-xs py-4 text-center" style={{ color: "var(--mx-dim)" }}>Loading…</div>
+        ) : txs.map((t) => (
+          <div key={t.tx_id} className="flex justify-between items-center text-xs py-1 font-mono" style={{ borderBottom: "1px solid var(--mx-border)" }}>
             <a href={`/tx/${t.tx_id}`} className="transition-colors hover:text-[#39ff14]" style={{ color: "var(--mx-dim)" }}>
               {shortAddr(t.tx_id)}
             </a>
-            <span style={{ color: "var(--mx-text)" }}>+{sompiToKrx(t.amount_sompi)} KRX</span>
+            <span style={{ color: "var(--mx-green)" }}>+{sompiToKrx(t.amount_sompi)} KRX</span>
           </div>
         ))}
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-3 text-xs select-none">
+          <button
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page === 0}
+            className="px-3 py-1 rounded transition-colors"
+            style={{
+              background: "var(--mx-panel)",
+              color: page === 0 ? "var(--mx-dim)" : "var(--mx-green)",
+              border: "1px solid var(--mx-border)",
+              cursor: page === 0 ? "default" : "pointer",
+            }}
+          >
+            ← Prev
+          </button>
+
+          <span style={{ color: "var(--mx-text)" }}>
+            Page {page + 1} / {totalPages}
+          </span>
+
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            disabled={page >= totalPages - 1}
+            className="px-3 py-1 rounded transition-colors"
+            style={{
+              background: "var(--mx-panel)",
+              color: page >= totalPages - 1 ? "var(--mx-dim)" : "var(--mx-green)",
+              border: "1px solid var(--mx-border)",
+              cursor: page >= totalPages - 1 ? "default" : "pointer",
+            }}
+          >
+            Next →
+          </button>
+        </div>
+      )}
     </Card>
   );
 }

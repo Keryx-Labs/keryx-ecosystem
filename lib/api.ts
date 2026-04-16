@@ -58,6 +58,7 @@ export interface Transaction {
 export interface AddressInfo {
   address: string;
   total_received_sompi: number;
+  total_tx_count: number;
   transactions: AddressTx[];
 }
 
@@ -129,7 +130,8 @@ export const api = {
   transactions: (limit = 20, offset = 0) =>
     get<Transaction[]>(`/api/v1/transactions?limit=${limit}&offset=${offset}`),
   transaction: (id: string) => get<Transaction>(`/api/v1/transactions/${id}`),
-  address: (addr: string) => get<AddressInfo>(`/api/v1/addresses/${addr}`),
+  address: (addr: string, limit = 0, offset = 0) =>
+    get<AddressInfo>(`/api/v1/addresses/${addr}?limit=${limit}&offset=${offset}`),
   // DAG graph inspector
   graph: (limit = 80) => get<GraphBlock[]>(`/api/v1/graph?limit=${limit}`),
   // Wallet endpoints
