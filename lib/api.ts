@@ -22,6 +22,8 @@ export interface Block {
   is_chain_block: boolean;
   tx_count: number;
   indexed_at: number;
+  /** OPoI inference tag — 16 hex chars, null for pre-OPoI blocks. */
+  opoi_tag: string | null;
   parents?: string[];
   children?: string[];
 }

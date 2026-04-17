@@ -18,6 +18,18 @@ export default function BlockRow({ block }: { block: Block }) {
       <span className="w-16 text-right shrink-0" style={{ color: "var(--mx-dim)" }}>
         <span style={{ color: "var(--mx-mid)" }}>{block.tx_count}</span> txs
       </span>
+      {/* OPoI badge — proof that the miner ran AI inference for this block */}
+      {block.opoi_tag ? (
+        <span
+          title={`OPoI inference tag: ${block.opoi_tag}`}
+          className="w-14 text-right shrink-0 font-mono"
+          style={{ color: "var(--mx-green)", opacity: 0.9 }}
+        >
+          AI ✓
+        </span>
+      ) : (
+        <span className="w-14 text-right shrink-0" style={{ color: "var(--mx-muted)" }}>—</span>
+      )}
       <span className="w-16 text-right shrink-0"
             style={{ color: block.is_chain_block ? "var(--mx-mid)" : "var(--mx-muted)" }}>
         {block.is_chain_block ? "chain" : "DAG"}
