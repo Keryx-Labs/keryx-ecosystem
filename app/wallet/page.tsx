@@ -281,6 +281,7 @@ function Dashboard({ wallet, onDisconnect }: { wallet: WalletState; onDisconnect
 
   const [balanceSompi, setBalanceSompi] = useState<number | null>(null);
   const [utxos, setUtxos] = useState<UtxoEntry[]>([]);
+  const [lastDaaScore, setLastDaaScore] = useState(0);
   const [loading, setLoading] = useState(true);
   const [balanceError, setBalanceError] = useState("");
 
@@ -298,12 +299,14 @@ function Dashboard({ wallet, onDisconnect }: { wallet: WalletState; onDisconnect
     setLoading(true);
     setBalanceError("");
     try {
-      const [bal, u] = await Promise.all([
+      const [bal, u, info] = await Promise.all([
         api.balance(key.address),
         api.utxos(key.address),
+        api.info(),
       ]);
       setBalanceSompi(bal.balance_sompi);
       setUtxos(u);
+      setLastDaaScore(info.last_daa_score ?? 0);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setBalanceError(msg.includes("utxoindex")
@@ -347,7 +350,8 @@ function Dashboard({ wallet, onDisconnect }: { wallet: WalletState; onDisconnect
         feeSompi,
         key.address,
         key.privateKeyHex,
-        key.publicKeyHex
+        key.publicKeyHex,
+        lastDaaScore
       );
 
       setSendStatus("broadcasting");

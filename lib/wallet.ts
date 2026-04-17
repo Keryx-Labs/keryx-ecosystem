@@ -22,6 +22,9 @@ const SIG_HASH_ALL = 0x01;
 // Kaspa coin type in BIP-44 (registered as 111111)
 const DERIVATION_PATH = "m/44'/111111'/0'/0";
 
+// Coinbase outputs are spendable after COINBASE_MATURITY DAA scores.
+const COINBASE_MATURITY = 100;
+
 // Blake2b key for transaction signing hash
 const SIGNING_HASH_KEY = new TextEncoder().encode("TransactionSigningHash");
 
@@ -409,7 +412,8 @@ export function buildAndSignTx(
   feeSompi: number,
   changeAddr: string,
   privateKeyHex: string,
-  publicKeyHex: string
+  publicKeyHex: string,
+  currentDaaScore = 0
 ): BuildTxResult {
   const needed = amountSompi + feeSompi;
 
@@ -419,7 +423,8 @@ export function buildAndSignTx(
   const selected: Utxo[] = [];
   let totalIn = 0;
   for (const u of sorted) {
-    if (u.is_coinbase) continue; // skip immature coinbase
+    // Skip coinbase outputs that have not yet reached maturity.
+    if (u.is_coinbase && currentDaaScore > 0 && u.block_daa_score + COINBASE_MATURITY > currentDaaScore) continue;
     selected.push(u);
     totalIn += u.amount_sompi;
     if (totalIn >= needed) break;
