@@ -9,12 +9,6 @@ const MAX_VISIBLE = 20;
 const DEQUEUE_FAST = 80;
 const DEQUEUE_SLOW = 250;
 
-async function fetchTxs(): Promise<Transaction[]> {
-  const res = await fetch(`${API}/api/v1/transactions?limit=100`, { cache: "no-store" });
-  if (!res.ok) throw new Error("fetch failed");
-  return res.json();
-}
-
 interface DisplayTx extends Transaction {
   animKey: string;
   isNew: boolean;
@@ -46,19 +40,23 @@ export default function LiveTransactions({ initial }: { initial: Transaction[] }
   }, []);
 
   useEffect(() => {
-    const poll = async () => {
+    const es = new EventSource(`${API}/api/v1/events`);
+    es.addEventListener("live", (e: MessageEvent) => {
       try {
-        const fresh = await fetchTxs();
-        const incoming = fresh.filter((t) => !knownRef.current.has(t.tx_id));
+        const data = JSON.parse(e.data) as { txs?: Transaction[] };
+        const incoming = (data.txs ?? [])
+          .filter((t) => !knownRef.current.has(t.tx_id));
         if (incoming.length > 0) {
           incoming.forEach((t) => knownRef.current.add(t.tx_id));
           queueRef.current.push(...incoming);
           if (!timerRef.current) timerRef.current = setTimeout(dequeue, 0);
         }
       } catch {}
+    });
+    return () => {
+      es.close();
+      if (timerRef.current) clearTimeout(timerRef.current);
     };
-    const id = setInterval(poll, 500);
-    return () => { clearInterval(id); if (timerRef.current) clearTimeout(timerRef.current); };
   }, [dequeue]);
 
   return (

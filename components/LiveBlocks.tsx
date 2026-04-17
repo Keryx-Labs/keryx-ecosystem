@@ -9,12 +9,6 @@ const MAX_VISIBLE = 20;
 const DEQUEUE_FAST = 80;
 const DEQUEUE_SLOW = 250;
 
-async function fetchBlocks(): Promise<Block[]> {
-  const res = await fetch(`${API}/api/v1/blocks?limit=100`, { cache: "no-store" });
-  if (!res.ok) throw new Error("fetch failed");
-  return res.json();
-}
-
 interface DisplayBlock extends Block {
   animKey: string;
   isNew: boolean;
@@ -46,10 +40,11 @@ export default function LiveBlocks({ initial }: { initial: Block[] }) {
   }, []);
 
   useEffect(() => {
-    const poll = async () => {
+    const es = new EventSource(`${API}/api/v1/events`);
+    es.addEventListener("live", (e: MessageEvent) => {
       try {
-        const fresh = await fetchBlocks();
-        const incoming = fresh
+        const data = JSON.parse(e.data) as { blocks?: Block[] };
+        const incoming = (data.blocks ?? [])
           .filter((b) => !knownRef.current.has(b.hash))
           .sort((a, b) => a.daa_score - b.daa_score);
         if (incoming.length > 0) {
@@ -58,9 +53,11 @@ export default function LiveBlocks({ initial }: { initial: Block[] }) {
           if (!timerRef.current) timerRef.current = setTimeout(dequeue, 0);
         }
       } catch {}
+    });
+    return () => {
+      es.close();
+      if (timerRef.current) clearTimeout(timerRef.current);
     };
-    const id = setInterval(poll, 500);
-    return () => { clearInterval(id); if (timerRef.current) clearTimeout(timerRef.current); };
   }, [dequeue]);
 
   return (
