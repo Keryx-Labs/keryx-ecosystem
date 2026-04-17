@@ -34,6 +34,19 @@ export default async function BlockPage({ params }: { params: { hash: string } }
       ),
     },
     {
+      label: "OPoI Tag",
+      value: block.opoi_tag ? (
+        <span style={{ color: "var(--mx-green)", fontFamily: "monospace" }}>
+          ✓&nbsp;{block.opoi_tag}
+          <span style={{ color: "var(--mx-dim)", fontSize: "0.75em", marginLeft: "0.5rem" }}>
+            (inference proof v1)
+          </span>
+        </span>
+      ) : (
+        <span style={{ color: "var(--mx-muted)" }}>— (no OPoI tag)</span>
+      ),
+    },
+    {
       label: `Parents (${parents.length})`,
       value: parents.length === 0
         ? <span style={{ color: "var(--mx-dim)" }}>—</span>
