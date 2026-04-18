@@ -8,7 +8,7 @@ export default function BlockRow({ block }: { block: Block }) {
   return (
     <div className="card card-hover flex items-center gap-4 px-4 py-3 text-xs">
       <span className="font-bold w-24 shrink-0 tabular-nums" style={{ color: "var(--mx-green)" }}>
-        #{block.daa_score.toLocaleString()}
+        #{block.daa_score.toLocaleString('en-US')}
       </span>
       <Link href={`/blocks/${block.hash}`}
             className="flex-1 truncate hover:underline transition-colors"

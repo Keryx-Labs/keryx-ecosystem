@@ -4,12 +4,13 @@ import { notFound } from "next/navigation";
 
 export const revalidate = 30;
 
-export default async function BlockPage({ params }: { params: { hash: string } }) {
+export default async function BlockPage({ params }: { params: Promise<{ hash: string }> }) {
+  const { hash } = await params;
   let block = null;
   let txs = [];
 
   try {
-    [block, txs] = await Promise.all([api.block(params.hash), api.blockTxs(params.hash)]);
+    [block, txs] = await Promise.all([api.block(hash), api.blockTxs(hash)]);
   } catch { notFound(); }
 
   if (!block) notFound();
@@ -19,8 +20,8 @@ export default async function BlockPage({ params }: { params: { hash: string } }
 
   const rows: { label: string; value: React.ReactNode }[] = [
     { label: "Hash",         value: <span className="break-all" style={{ color: "var(--mx-green)", fontFamily: "monospace" }}>{block.hash}</span> },
-    { label: "DAA Score",    value: block.daa_score.toLocaleString() },
-    { label: "Blue Score",   value: block.blue_score.toLocaleString() },
+    { label: "DAA Score",    value: block.daa_score.toLocaleString('en-US') },
+    { label: "Blue Score",   value: block.blue_score.toLocaleString('en-US') },
     { label: "Timestamp",    value: formatTimestamp(block.timestamp_ms) },
     { label: "Difficulty",   value: block.difficulty.toExponential(4) },
     { label: "Bits",         value: `0x${block.bits.toString(16)}` },
@@ -92,7 +93,7 @@ export default async function BlockPage({ params }: { params: { hash: string } }
       </div>
 
       <h1 className="text-lg font-bold tracking-[0.2em] uppercase" style={{ color: "var(--mx-bright)" }}>
-        Block #{block.daa_score.toLocaleString()}
+        Block #{block.daa_score.toLocaleString('en-US')}
       </h1>
 
       {/* Detail table */}

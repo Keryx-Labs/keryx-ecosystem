@@ -222,7 +222,7 @@ export default function AddressPage() {
         </div>
         <div className="flex gap-4 px-4 py-3 text-xs">
           <span className="w-36 shrink-0 uppercase tracking-wider" style={{ color: "var(--mx-dim)" }}>Indexed txs</span>
-          <span style={{ color: "var(--mx-mid)" }}>{info.total_tx_count.toLocaleString()}</span>
+          <span style={{ color: "var(--mx-mid)" }}>{info.total_tx_count.toLocaleString('en-US')}</span>
         </div>
       </div>
 
@@ -234,7 +234,7 @@ export default function AddressPage() {
               Transaction History
             </h2>
             <span className="text-[10px]" style={{ color: "var(--mx-muted)" }}>
-              {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, info.total_tx_count)} of {info.total_tx_count.toLocaleString()}
+              {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, info.total_tx_count)} of {info.total_tx_count.toLocaleString('en-US')}
             </span>
           </div>
 
@@ -249,7 +249,7 @@ export default function AddressPage() {
             {info.transactions.map((tx, i) => (
               <div key={i} className="card card-hover flex items-center gap-4 px-4 py-3 text-xs">
                 <span className="w-24 shrink-0 tabular-nums" style={{ color: "var(--mx-green)" }}>
-                  #{tx.daa_score.toLocaleString()}
+                  #{tx.daa_score.toLocaleString('en-US')}
                 </span>
                 <Link
                   href={`/tx/${tx.tx_id}`}

@@ -85,7 +85,7 @@ function BlockRow({ block }: { block: DisplayBlock }) {
       {/* DAA Score */}
       <span className="w-24 shrink-0 font-bold tabular-nums"
             style={{ color: block.isNew ? "var(--mx-bright)" : "var(--mx-green)", transition: "color 0.9s ease" }}>
-        #{block.daa_score.toLocaleString()}
+        #{block.daa_score.toLocaleString('en-US')}
       </span>
 
       {/* Hash */}

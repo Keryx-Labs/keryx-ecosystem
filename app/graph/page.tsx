@@ -368,8 +368,8 @@ export default function GraphPage() {
 
             {[
               { label: "Hash",      value: shortHash(selected.hash, 10), mono: true },
-              { label: "DAA Score", value: selected.daa_score.toLocaleString() },
-              { label: "Blue Score",value: selected.blue_score.toLocaleString() },
+              { label: "DAA Score", value: selected.daa_score.toLocaleString('en-US') },
+              { label: "Blue Score",value: selected.blue_score.toLocaleString('en-US') },
               { label: "TX Count",  value: selected.tx_count.toString() },
               { label: "Status",    value: selected.is_chain_block ? "CHAIN" : "NON-CHAIN" },
               { label: "Time",      value: formatTimestamp(selected.timestamp_ms) },
@@ -444,7 +444,7 @@ export default function GraphPage() {
         </span>
         <span>
           <span style={{ color: "var(--mx-mid)" }}>
-            {blocks.length > 0 ? blocks[blocks.length - 1].daa_score.toLocaleString() : "—"}
+            {blocks.length > 0 ? blocks[blocks.length - 1].daa_score.toLocaleString('en-US') : "—"}
           </span> tip daa
         </span>
         {paused && (
