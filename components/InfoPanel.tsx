@@ -40,9 +40,9 @@ export default function InfoPanel({ info }: Props) {
   const totalSupply   = formatSupply(info.total_supply_krx ?? 0);
   const maxSupply     = formatSupply(info.max_supply_krx ?? 28_700_000_000);
   const blockReward   = (info.block_reward_krx ?? 0).toFixed(2);
-  const daaScore      = (info.last_daa_score ?? 0).toLocaleString();
-  const totalBlocks   = (info.total_blocks ?? 0).toLocaleString();
-  const totalTxs      = (info.total_txs ?? 0).toLocaleString();
+  const daaScore      = (info.last_daa_score ?? 0).toLocaleString('en-US');
+  const totalBlocks   = (info.total_blocks ?? 0).toLocaleString('en-US');
+  const totalTxs      = (info.total_txs ?? 0).toLocaleString('en-US');
   const network       = (info.network ?? "keryx-mainnet").replace("keryx-", "").toUpperCase();
 
   return (

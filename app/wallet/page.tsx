@@ -560,7 +560,7 @@ function TxHistory({ address }: { address: string }) {
         <Label>Transaction history</Label>
         {total > 0 && (
           <span className="text-xs" style={{ color: "var(--mx-dim)" }}>
-            {total.toLocaleString()} txs
+            {total.toLocaleString('en-US')} txs
           </span>
         )}
       </div>

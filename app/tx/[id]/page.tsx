@@ -4,11 +4,12 @@ import { notFound } from "next/navigation";
 
 export const revalidate = 60;
 
-export default async function TxPage({ params }: { params: { id: string } }) {
+export default async function TxPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   let tx: Transaction | null = null;
 
   try {
-    tx = await api.transaction(params.id);
+    tx = await api.transaction(id);
   } catch { notFound(); }
 
   if (!tx) notFound();
@@ -58,9 +59,9 @@ export default async function TxPage({ params }: { params: { id: string } }) {
         {[
           { label: "TX ID",          value: <span className="break-all" style={{ color: "var(--mx-green)", fontFamily: "monospace" }}>{tx.tx_id}</span> },
           { label: "Block",          value: <Link href={`/blocks/${tx.block_hash}`} className="hover:underline break-all" style={{ color: "var(--mx-dim)", fontFamily: "monospace" }}>{shortHash(tx.block_hash, 20)}</Link> },
-          { label: "DAA Score",      value: block?.daa_score.toLocaleString() ?? "—" },
+          { label: "DAA Score",      value: block?.daa_score.toLocaleString('en-US') ?? "—" },
           { label: "Timestamp",      value: block ? formatTimestamp(block.timestamp_ms) : "—" },
-          { label: "Confirmations",  value: (tx.confirmations ?? 0) > 0 ? (tx.confirmations ?? 0).toLocaleString() : "—" },
+          { label: "Confirmations",  value: (tx.confirmations ?? 0) > 0 ? (tx.confirmations ?? 0).toLocaleString('en-US') : "—" },
           { label: "Total Output",   value: <span style={{ color: "var(--mx-mid)" }}>{sompiToKrx(tx.total_out_sompi)} KRX</span> },
         ].map(({ label, value }) => (
           <div key={label} className="flex gap-4 px-4 py-3 text-xs border-b last:border-0"

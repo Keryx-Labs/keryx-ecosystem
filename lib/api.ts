@@ -159,7 +159,7 @@ export const formatHashrate = (hps: number): string => {
 export const formatSupply = (krx: number): string => {
   if (krx >= 1e9) return `${(krx / 1e9).toFixed(3)} B`;
   if (krx >= 1e6) return `${(krx / 1e6).toFixed(3)} M`;
-  return krx.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return krx.toLocaleString('en-US', { maximumFractionDigits: 2 });
 };
 
 export const shortHash = (hash: string, len = 12): string => {
