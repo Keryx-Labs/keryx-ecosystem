@@ -38,7 +38,7 @@ export default async function ExplorerPage() {
 
       {/* Stats panels */}
       {info ? (
-        <InfoPanel info={info} />
+        <InfoPanel initial={info} />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {[...Array(3)].map((_, i) => (

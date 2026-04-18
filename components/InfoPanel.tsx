@@ -1,9 +1,12 @@
 "use client";
 
-import { NetworkInfo, formatHashrate, formatSupply } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { api, NetworkInfo, formatHashrate, formatSupply } from "@/lib/api";
+
+const POLL_INTERVAL_MS = 5_000;
 
 interface Props {
-  info: NetworkInfo;
+  initial: NetworkInfo;
 }
 
 function Row({ label, value, bright }: { label: string; value: React.ReactNode; bright?: boolean }) {
@@ -34,16 +37,30 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-export default function InfoPanel({ info }: Props) {
-  const minedPct      = (info.mined_pct ?? 0).toFixed(2);
-  const hashrate      = formatHashrate(info.hashrate_hps ?? 0);
-  const totalSupply   = formatSupply(info.total_supply_krx ?? 0);
-  const maxSupply     = formatSupply(info.max_supply_krx ?? 28_700_000_000);
-  const blockReward   = (info.block_reward_krx ?? 0).toFixed(2);
-  const daaScore      = (info.last_daa_score ?? 0).toLocaleString('en-US');
-  const totalBlocks   = (info.total_blocks ?? 0).toLocaleString('en-US');
-  const totalTxs      = (info.total_txs ?? 0).toLocaleString('en-US');
-  const network       = (info.network ?? "keryx-mainnet").replace("keryx-", "").toUpperCase();
+export default function InfoPanel({ initial }: Props) {
+  const [info, setInfo] = useState<NetworkInfo>(initial);
+
+  useEffect(() => {
+    const id = setInterval(async () => {
+      try {
+        const fresh = await api.info();
+        setInfo(fresh);
+      } catch {
+        // Keep displaying last known data on error
+      }
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  const minedPct    = (info.mined_pct ?? 0).toFixed(2);
+  const hashrate    = formatHashrate(info.hashrate_hps ?? 0);
+  const totalSupply = formatSupply(info.total_supply_krx ?? 0);
+  const maxSupply   = formatSupply(info.max_supply_krx ?? 28_700_000_000);
+  const blockReward = (info.block_reward_krx ?? 0).toFixed(2);
+  const daaScore    = (info.last_daa_score ?? 0).toLocaleString('en-US');
+  const totalBlocks = (info.total_blocks ?? 0).toLocaleString('en-US');
+  const totalTxs    = (info.total_txs ?? 0).toLocaleString('en-US');
+  const network     = (info.network ?? "keryx-mainnet").replace("keryx-", "").toUpperCase();
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
