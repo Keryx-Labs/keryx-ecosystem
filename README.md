@@ -1,24 +1,46 @@
 # keryx-ecosystem
 
-The unified interface for the Keryx BlockDAG containing the Next.js Explorer, Web Wallet, and landing page.
+The unified interface for the Keryx BlockDAG — Next.js Explorer, Web Wallet, BlockDAG Inspector, and landing page.
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+- Node.js (v20+)
+- Access to a running Keryx Node
+
+### Installation
+
+```bash
+npm install
+npm run build
+npm start
+```
+
+Or for development:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) with your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## BlockDAG Inspector Credits
+
+The BlockDAG Inspector (`/graph`) is inspired by **[DAGPulse](https://github.com/Yonkoo11/dagpulse)** by [@Yonkoo11](https://github.com/Yonkoo11), originally built for the Kaspathon hackathon.
+
+DAGPulse is an open-source real-time BlockDAG visualization dashboard for the Kaspa network, released under the MIT License.
+
+Key concepts adapted from DAGPulse:
+- HTML5 Canvas-based rendering with a 60fps animation loop
+- Block lerp animation (smooth position interpolation)
+- Fade-in + glow effect on newly arrived blocks
+- Pan (click-drag) and zoom (scroll wheel) interaction
+- Column-based DAG layout algorithm (blocks grouped by DAA score)
+- Bezier curve edges with arrow heads
+- Vignette effect on canvas borders
+- Auto-follow mode tracking the DAG tip
+
+The implementation has been rewritten from Svelte to React/Next.js and adapted for the Keryx network (green color palette, `is_chain_block` distinction, Keryx REST API).
 
 ## Join the community
 

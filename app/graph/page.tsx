@@ -4,180 +4,530 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { api, type GraphBlock, formatTimestamp, shortHash } from "@/lib/api";
 
-// ── Layout constants ──────────────────────────────────────────────────────────
+// ── Layout constants (inspired by dagpulse) ───────────────────────────────────
+const BLOCK_RADIUS = 14;
+const SPACING_X    = 55;
+const SPACING_Y    = 46;
+const POLL_MS      = 2000;
 
-const NODE_W = 22;
-const NODE_H = 14;
-const COL_W  = 28;   // horizontal space per DAA-score column
-const LANE_H = 26;   // vertical space per lane
-const MX     = 16;   // horizontal margin
-const MY     = 16;   // vertical margin
-
-// ── Colors ────────────────────────────────────────────────────────────────────
-
+// ── Keryx color palette ───────────────────────────────────────────────────────
 const C = {
-  bg:         "#000000",
-  gridLine:   "rgba(0,229,51,0.04)",
-  chainFill:  "#001a00",
-  chainStroke:"#39ff14",
-  chainText:  "#39ff14",
-  ghostFill:  "#050505",
-  ghostStroke:"#006616",
-  ghostText:  "#006616",
-  selFill:    "#003300",
-  selStroke:  "#39ff14",
-  edgeChain:  "rgba(57,255,20,0.45)",
-  edgeGhost:  "rgba(0,102,22,0.35)",
-  labelColor: "rgba(0,229,51,0.25)",
+  bg:           "#000a00",
+  gridLine:     "rgba(0,229,51,0.04)",
+  chainFill:    "#0e2a0e",
+  chainStroke:  "#39ff14",
+  chainEdge:    "rgba(57,255,20,0.55)",
+  chainGlow:    "rgba(57,255,20,0.22)",
+  ghostFill:    "rgba(239,68,68,0.18)",
+  ghostStroke:  "#ef4444",
+  ghostEdge:    "rgba(239,68,68,0.22)",
+  ghostGlow:    "rgba(239,68,68,0.12)",
+  selectedRing: "#f59e0b",
+  selectedEdge: "rgba(245,158,11,0.85)",
+  hoveredEdge:  "rgba(57,255,20,0.90)",
+  vignetteColor:"#000a00",
 };
 
-// ── Lane assignment ───────────────────────────────────────────────────────────
-
-interface NodePos {
-  col:  number;   // column index (0 = oldest)
-  lane: number;   // row index (0 = top)
-  x:    number;   // pixel left edge
-  y:    number;   // pixel top edge
+// ── Internal animated block state ─────────────────────────────────────────────
+interface RenderBlock extends GraphBlock {
+  x:            number;
+  y:            number;
+  targetX:      number;
+  targetY:      number;
+  opacity:      number;
+  scale:        number;
+  glowIntensity:number;
+  addedAt:      number;
 }
 
-const CANVAS_H = 516;
+// ── Layout: group by daa_score, spread vertically around center ───────────────
+function layoutBlocks(blocks: RenderBlock[], canvasH: number): void {
+  if (blocks.length === 0) return;
 
-function computeLayout(blocks: GraphBlock[]): {
-  positions: Map<string, NodePos>;
-  totalCols: number;
-  totalLanes: number;
-} {
-  if (blocks.length === 0) return { positions: new Map(), totalCols: 0, totalLanes: 1 };
-
-  const minDaa = blocks[0].daa_score;
-
-  const byDaa = new Map<number, GraphBlock[]>();
+  const minDaa = Math.min(...blocks.map(b => b.daa_score));
+  const columns = new Map<number, RenderBlock[]>();
   for (const b of blocks) {
-    const arr = byDaa.get(b.daa_score) ?? [];
+    const arr = columns.get(b.daa_score) ?? [];
     arr.push(b);
-    byDaa.set(b.daa_score, arr);
+    columns.set(b.daa_score, arr);
   }
 
-  const daaScores = [...byDaa.keys()].sort((a, b) => a - b);
+  const centerY = canvasH / 2;
 
-  // First pass: assign lanes (without y position yet)
-  const laneMap = new Map<string, { col: number; lane: number }>();
-  for (const daa of daaScores) {
-    const col = daa - minDaa;
-    const group = [...(byDaa.get(daa) ?? [])].sort((a, b) => {
+  for (const [daa, col] of columns) {
+    const x = (daa - minDaa) * SPACING_X;
+    // chain blocks first, then by hash for stability
+    col.sort((a, b) => {
       if (a.is_chain_block !== b.is_chain_block) return a.is_chain_block ? -1 : 1;
       return a.hash.localeCompare(b.hash);
     });
-    const usedLanes = new Set<number>();
-    for (const b of group) {
-      const parentLanes = b.parents
-        .map(ph => laneMap.get(ph)?.lane)
-        .filter((l): l is number => l !== undefined && !usedLanes.has(l));
-      let lane: number;
-      if (parentLanes.length > 0) {
-        lane = parentLanes[0];
-      } else {
-        let l = 0;
-        while (usedLanes.has(l)) l++;
-        lane = l;
-      }
-      usedLanes.add(lane);
-      laneMap.set(b.hash, { col, lane });
+    const spread = col.length - 1;
+    for (let j = 0; j < col.length; j++) {
+      const yOffset = spread === 0 ? 0 : (j - spread / 2) * SPACING_Y;
+      col[j].targetX = x;
+      col[j].targetY = centerY + yOffset;
+    }
+  }
+}
+
+// ── Renderer ──────────────────────────────────────────────────────────────────
+function render(
+  ctx: CanvasRenderingContext2D,
+  blocks: RenderBlock[],
+  blockMap: Map<string, RenderBlock>,
+  offsetX: number,
+  offsetY: number,
+  zoom: number,
+  selectedHash: string | null,
+  hoveredHash: string | null,
+  w: number,
+  h: number,
+) {
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, w, h);
+
+  drawGrid(ctx, offsetX, offsetY, zoom, w, h);
+
+  ctx.save();
+  ctx.translate(offsetX, offsetY);
+  ctx.scale(zoom, zoom);
+
+  drawEdges(ctx, blocks, blockMap, selectedHash, hoveredHash);
+
+  for (const b of blocks) {
+    if (b.opacity < 0.05) continue;
+    drawBlock(ctx, b, selectedHash, hoveredHash);
+  }
+
+  ctx.restore();
+  drawVignette(ctx, w, h);
+}
+
+function drawGrid(ctx: CanvasRenderingContext2D, ox: number, oy: number, zoom: number, w: number, h: number) {
+  const gridSize = 80 * zoom;
+  if (gridSize < 15) return;
+  ctx.strokeStyle = C.gridLine;
+  ctx.lineWidth = 0.5;
+  const sx = ((ox % gridSize) + gridSize) % gridSize;
+  const sy = ((oy % gridSize) + gridSize) % gridSize;
+  ctx.beginPath();
+  for (let x = sx; x < w; x += gridSize) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+  for (let y = sy; y < h; y += gridSize) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
+  ctx.stroke();
+}
+
+function drawEdges(
+  ctx: CanvasRenderingContext2D,
+  blocks: RenderBlock[],
+  blockMap: Map<string, RenderBlock>,
+  selectedHash: string | null,
+  hoveredHash: string | null,
+) {
+  type Edge = { from: RenderBlock; to: RenderBlock; highlighted: boolean };
+  const normal: Edge[] = [];
+  const highlight: Edge[] = [];
+
+  for (const block of blocks) {
+    if (block.opacity < 0.05) continue;
+    for (const ph of block.parents) {
+      const parent = blockMap.get(ph);
+      if (!parent || parent.opacity < 0.05) continue;
+      const isHL =
+        selectedHash === block.hash || selectedHash === parent.hash ||
+        hoveredHash  === block.hash || hoveredHash  === parent.hash;
+      (isHL ? highlight : normal).push({ from: parent, to: block, highlighted: isHL });
     }
   }
 
-  // Compute total lanes, then derive laneH to fill the canvas
-  const totalLanes = Math.max(...[...laneMap.values()].map(p => p.lane)) + 1;
-  const effectiveLaneH = Math.max(LANE_H, Math.floor((CANVAS_H - MY * 2) / totalLanes));
+  for (const e of normal)    drawEdge(ctx, e.from, e.to, selectedHash, hoveredHash, false);
+  for (const e of highlight) drawEdge(ctx, e.from, e.to, selectedHash, hoveredHash, true);
+}
 
-  // Second pass: compute pixel positions
-  const positions = new Map<string, NodePos>();
-  for (const [hash, { col, lane }] of laneMap) {
-    positions.set(hash, {
-      col,
-      lane,
-      x: MX + col * COL_W,
-      y: MY + lane * effectiveLaneH,
-    });
+function drawEdge(
+  ctx: CanvasRenderingContext2D,
+  from: RenderBlock,
+  to: RenderBlock,
+  selectedHash: string | null,
+  hoveredHash: string | null,
+  highlighted: boolean,
+) {
+  const isSelected = selectedHash === to.hash || selectedHash === from.hash;
+  const isHovered  = hoveredHash  === to.hash || hoveredHash  === from.hash;
+
+  const dx = to.x - from.x;
+  const cp = Math.max(15, Math.abs(dx) * 0.35);
+
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.bezierCurveTo(from.x + cp, from.y, to.x - cp, to.y, to.x, to.y);
+
+  if (isSelected) {
+    ctx.strokeStyle = C.selectedEdge;
+    ctx.lineWidth   = 2.5;
+    ctx.globalAlpha = 0.9;
+  } else if (isHovered) {
+    ctx.strokeStyle = C.hoveredEdge;
+    ctx.lineWidth   = 2;
+    ctx.globalAlpha = 0.8;
+  } else {
+    const isChainEdge = to.is_chain_block && from.is_chain_block;
+    ctx.strokeStyle = isChainEdge ? C.chainEdge : C.ghostEdge;
+    ctx.lineWidth   = isChainEdge ? 1.5 : 1;
+    ctx.globalAlpha = Math.min(from.opacity, to.opacity) * 0.7;
   }
 
-  const totalCols = (daaScores[daaScores.length - 1] ?? minDaa) - minDaa + 1;
-  return { positions, totalCols, totalLanes };
+  ctx.stroke();
+
+  // Arrow head toward child
+  if (highlighted || ctx.globalAlpha > 0.35) {
+    ctx.fillStyle = ctx.strokeStyle;
+    drawArrow(ctx, from, to, cp, highlighted);
+  }
+
+  ctx.globalAlpha = 1;
 }
 
-// ── Edge path (cubic bezier) ──────────────────────────────────────────────────
+function drawArrow(
+  ctx: CanvasRenderingContext2D,
+  from: RenderBlock,
+  to: RenderBlock,
+  cp: number,
+  big: boolean,
+) {
+  const cp2x = to.x - cp;
+  const tanX = to.x - cp2x;
+  const tanY = to.y - to.y; // 0 at endpoint
+  const len  = Math.sqrt(tanX * tanX + tanY * tanY);
+  if (len < 0.01) return;
 
-function edgePath(px: number, py: number, cx: number, cy: number): string {
-  const sx = px + NODE_W;
-  const sy = py + NODE_H / 2;
-  const ex = cx;
-  const ey = cy + NODE_H / 2;
-  const dx = Math.abs(ex - sx) * 0.45;
-  return `M${sx},${sy} C${sx + dx},${sy} ${ex - dx},${ey} ${ex},${ey}`;
+  const nx = tanX / len;
+  const sz = big ? 6 : 4;
+  const off = BLOCK_RADIUS + 2;
+
+  const tipX = to.x - nx * off;
+  const tipY = to.y;
+  const px = 0, py = 1; // perpendicular (horizontal edges)
+
+  ctx.beginPath();
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(tipX - nx * sz - px * sz * 0.5, tipY - py * sz * 0.5);
+  ctx.lineTo(tipX - nx * sz + px * sz * 0.5, tipY + py * sz * 0.5);
+  ctx.closePath();
+  ctx.fill();
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+function drawBlock(
+  ctx: CanvasRenderingContext2D,
+  block: RenderBlock,
+  selectedHash: string | null,
+  hoveredHash: string | null,
+) {
+  const r          = BLOCK_RADIUS * block.scale;
+  const isSelected = selectedHash === block.hash;
+  const isHovered  = hoveredHash  === block.hash;
+  const isChain    = block.is_chain_block;
 
+  ctx.globalAlpha = block.opacity;
+
+  // Glow on new blocks
+  if (block.glowIntensity > 0.02) {
+    const glowR = r + 10 * block.glowIntensity;
+    ctx.beginPath();
+    ctx.arc(block.x, block.y, glowR, 0, Math.PI * 2);
+    const intensity = block.glowIntensity * 0.3;
+    ctx.fillStyle = isChain
+      ? `rgba(57,255,20,${intensity})`
+      : `rgba(239,68,68,${intensity * 0.7})`;
+    ctx.fill();
+  }
+
+  // Body
+  ctx.beginPath();
+  ctx.arc(block.x, block.y, r, 0, Math.PI * 2);
+  ctx.fillStyle = isChain
+    ? (isHovered ? "#1a4d1a" : C.chainFill)
+    : (isHovered ? "#4d1a1a" : C.ghostFill);
+  ctx.fill();
+
+  // Border
+  ctx.beginPath();
+  ctx.arc(block.x, block.y, r, 0, Math.PI * 2);
+  ctx.strokeStyle = isChain ? C.chainStroke : C.ghostStroke;
+  ctx.lineWidth   = isSelected ? 2.5 : 1.5;
+  ctx.stroke();
+
+  // Selection ring (amber)
+  if (isSelected) {
+    ctx.beginPath();
+    ctx.arc(block.x, block.y, r + 5, 0, Math.PI * 2);
+    ctx.strokeStyle = C.selectedRing;
+    ctx.lineWidth   = 2;
+    ctx.stroke();
+  }
+
+  // TX dot (amber) if block has user txs
+  if (block.tx_count > 1) {
+    ctx.beginPath();
+    ctx.arc(block.x + r * 0.65, block.y - r * 0.65, 3, 0, Math.PI * 2);
+    ctx.fillStyle = "#f59e0b";
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+function drawVignette(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  const fade = (x1: number, y1: number, x2: number, y2: number, rx: number, ry: number, rw: number, rh: number) => {
+    const g = ctx.createLinearGradient(x1, y1, x2, y2);
+    g.addColorStop(0, C.vignetteColor);
+    g.addColorStop(1, "rgba(0,10,0,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(rx, ry, rw, rh);
+  };
+  fade(0, 0, 70, 0,   0,    0,    70,  h);
+  fade(w - 70, 0, w, 0, w - 70, 0, 70, h);
+  fade(0, 0, 0, 50,   0,    0,    w,  50);
+  fade(0, h - 50, 0, h, 0, h - 50, w, 50);
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
 export default function GraphPage() {
-  const scrollRef  = useRef<HTMLDivElement>(null);
-  const [blocks,   setBlocks]   = useState<GraphBlock[]>([]);
-  const [selected, setSelected] = useState<GraphBlock | null>(null);
-  const [error,    setError]    = useState<string | null>(null);
-  const [paused,   setPaused]   = useState(false);
-  const [limit,    setLimit]    = useState(120);
+  const canvasRef   = useRef<HTMLCanvasElement>(null);
+  const stateRef    = useRef({
+    blocks:       [] as RenderBlock[],
+    blockMap:     new Map<string, RenderBlock>(),
+    offsetX:      100,
+    offsetY:      0,
+    zoom:         1,
+    isDragging:   false,
+    lastMouseX:   0,
+    lastMouseY:   0,
+    selectedHash: null as string | null,
+    hoveredHash:  null as string | null,
+    paused:       false,
+    limit:        120,
+    rafId:        0,
+  });
+  const [selected,  setSelected]  = useState<GraphBlock | null>(null);
+  const [paused,    setPaused]    = useState(false);
+  const [limit,     setLimit]     = useState(120);
+  const [stats,     setStats]     = useState({ total: 0, chain: 0, ghost: 0, cols: 0, tip: 0 });
+  const [error,     setError]     = useState<string | null>(null);
 
+  // Keep stateRef in sync with React state
+  useEffect(() => { stateRef.current.paused = paused; }, [paused]);
+  useEffect(() => { stateRef.current.limit  = limit;  }, [limit]);
+
+  // ── Fetch & merge blocks ───────────────────────────────────────────────────
   const fetchBlocks = useCallback(async () => {
     try {
-      const data = await api.graph(limit);
-      setBlocks(data);
+      const fresh = await api.graph(stateRef.current.limit);
+      const s     = stateRef.current;
+      const now   = performance.now();
+
+      // Merge: keep existing animated state, add new blocks
+      const next = new Map<string, RenderBlock>();
+      for (const b of fresh) {
+        const existing = s.blockMap.get(b.hash);
+        if (existing) {
+          // Update fields that may change (is_chain_block via VirtualChainChanged)
+          existing.is_chain_block = b.is_chain_block;
+          existing.parents        = b.parents;
+          next.set(b.hash, existing);
+        } else {
+          // New block — start invisible at targetX/Y (will lerp in)
+          next.set(b.hash, {
+            ...b,
+            x:             s.offsetX > 100 ? s.blocks[s.blocks.length - 1]?.x ?? 0 : 0,
+            y:             0,
+            targetX:       0,
+            targetY:       0,
+            opacity:       0,
+            scale:         0.5,
+            glowIntensity: 1,
+            addedAt:       now,
+          });
+        }
+      }
+
+      s.blocks   = [...next.values()];
+      s.blockMap = next;
+
+      const minDaa = Math.min(...s.blocks.map(b => b.daa_score));
+      const maxDaa = Math.max(...s.blocks.map(b => b.daa_score));
+      setStats({
+        total: s.blocks.length,
+        chain: s.blocks.filter(b => b.is_chain_block).length,
+        ghost: s.blocks.filter(b => !b.is_chain_block).length,
+        cols:  maxDaa - minDaa + 1,
+        tip:   maxDaa,
+      });
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [limit]);
+  }, []);
 
-  // Initial fetch + polling (2 s)
+  // ── Animation loop ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    let last = performance.now();
+
+    function loop(now: number) {
+      const dt = now - last;
+      last = now;
+      const s = stateRef.current;
+      const ctx = canvas!.getContext("2d");
+      if (!ctx) return;
+
+      const w = canvas!.clientWidth;
+      const h = canvas!.clientHeight;
+      if (canvas!.width !== w || canvas!.height !== h) {
+        canvas!.width  = w;
+        canvas!.height = h;
+      }
+
+      // Layout target positions
+      layoutBlocks(s.blocks, h);
+
+      // Lerp animation
+      const lerpSpeed = 1 - Math.pow(0.001, dt / 1000);
+      for (const b of s.blocks) {
+        b.x += (b.targetX - b.x) * lerpSpeed;
+        b.y += (b.targetY - b.y) * lerpSpeed;
+
+        const age = now - b.addedAt;
+        b.opacity       = age < 400 ? Math.min(1, age / 250) : 1;
+        b.scale         = age < 400 ? 0.5 + Math.min(0.5, age / 250) * 0.5 : 1;
+        b.glowIntensity = age < 1500 ? 1 - age / 1500 : 0;
+      }
+
+      // Auto-scroll to newest blocks when not paused
+      if (!s.paused && s.blocks.length > 0) {
+        const maxTX = Math.max(...s.blocks.map(b => b.targetX));
+        const target = w - maxTX * s.zoom - 80;
+        s.offsetX += (target - s.offsetX) * 0.05;
+      }
+
+      render(ctx, s.blocks, s.blockMap, s.offsetX, s.offsetY, s.zoom, s.selectedHash, s.hoveredHash, w, h);
+      s.rafId = requestAnimationFrame(loop);
+    }
+
+    stateRef.current.rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(stateRef.current.rafId);
+  }, []);
+
+  // ── Polling ────────────────────────────────────────────────────────────────
   useEffect(() => {
     fetchBlocks();
     if (paused) return;
-    const id = setInterval(fetchBlocks, 2000);
+    const id = setInterval(fetchBlocks, POLL_MS);
     return () => clearInterval(id);
-  }, [fetchBlocks, paused]);
+  }, [fetchBlocks, paused, limit]);
 
-  // Auto-scroll to right when new blocks arrive
-  useEffect(() => {
-    if (!paused && scrollRef.current) {
-      scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+  // ── Mouse: pan + zoom + click + hover ─────────────────────────────────────
+  const hitTest = useCallback((canvasX: number, canvasY: number): RenderBlock | null => {
+    const s = stateRef.current;
+    const wx = (canvasX - s.offsetX) / s.zoom;
+    const wy = (canvasY - s.offsetY) / s.zoom;
+    for (let i = s.blocks.length - 1; i >= 0; i--) {
+      const b  = s.blocks[i];
+      const dx = wx - b.x;
+      const dy = wy - b.y;
+      if (dx * dx + dy * dy < BLOCK_RADIUS * BLOCK_RADIUS * 2.25) return b;
     }
-  }, [blocks, paused]);
+    return null;
+  }, []);
 
-  const { positions, totalCols, totalLanes } = computeLayout(blocks);
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    const s = stateRef.current;
+    s.isDragging  = true;
+    s.lastMouseX  = e.clientX;
+    s.lastMouseY  = e.clientY;
+  }, []);
 
-  const svgW = MX * 2 + totalCols * COL_W;
-  const svgH = CANVAS_H;
+  const onMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const s = stateRef.current;
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
 
-  // Build a hash-lookup for parent's block data
-  const blockMap = new Map(blocks.map(b => [b.hash, b]));
+    s.hoveredHash = hitTest(cx, cy)?.hash ?? null;
+
+    if (s.isDragging) {
+      s.offsetX += e.clientX - s.lastMouseX;
+      s.offsetY += e.clientY - s.lastMouseY;
+      s.lastMouseX = e.clientX;
+      s.lastMouseY = e.clientY;
+    }
+  }, [hitTest]);
+
+  const onMouseUp = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const s = stateRef.current;
+    const wasDragging = s.isDragging;
+    s.isDragging = false;
+
+    if (!wasDragging) return;
+
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const hit = hitTest(cx, cy);
+
+    if (hit) {
+      if (s.selectedHash === hit.hash) {
+        s.selectedHash = null;
+        setSelected(null);
+      } else {
+        s.selectedHash = hit.hash;
+        setSelected(hit);
+      }
+    } else {
+      s.selectedHash = null;
+      setSelected(null);
+    }
+  }, [hitTest]);
+
+  const onWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const s     = stateRef.current;
+    const factor = e.deltaY > 0 ? 0.92 : 1.08;
+    const nz     = Math.max(0.25, Math.min(3, s.zoom * factor));
+    const mx     = e.nativeEvent.offsetX;
+    const my     = e.nativeEvent.offsetY;
+    const scale  = nz / s.zoom;
+    s.offsetX    = mx - (mx - s.offsetX) * scale;
+    s.offsetY    = my - (my - s.offsetY) * scale;
+    s.zoom       = nz;
+  }, []);
+
+  const onMouseLeave = useCallback(() => {
+    stateRef.current.hoveredHash = null;
+  }, []);
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* Header */}
-      <div className="text-[10px]" style={{ color: "var(--mx-dim)" }}>
-        <Link href="/" className="hover:underline" style={{ color: "var(--mx-dim)" }}>Home</Link>
-        {" / "}
-        <span style={{ color: "var(--mx-mid)" }}>BlockDAG Inspector</span>
-      </div>
+    <div className="flex flex-col gap-4" style={{ height: "calc(100vh - 120px)", minHeight: 520 }}>
 
-      <div className="flex items-center gap-4 flex-wrap">
-        <h1 className="text-lg font-bold tracking-[0.2em] uppercase" style={{ color: "var(--mx-bright)" }}>
-          BlockDAG Inspector
-        </h1>
-        <span className="text-[9px] px-2 py-0.5 border"
+      {/* Header */}
+      <div className="flex items-center gap-4 flex-wrap shrink-0">
+        <div>
+          <div className="text-[10px] mb-1" style={{ color: "var(--mx-dim)" }}>
+            <Link href="/explorer" className="hover:underline" style={{ color: "var(--mx-dim)" }}>Explorer</Link>
+            {" / "}
+            <span style={{ color: "var(--mx-mid)" }}>BlockDAG Inspector</span>
+          </div>
+          <h1 className="text-lg font-bold tracking-[0.2em] uppercase" style={{ color: "var(--mx-bright)" }}>
+            BlockDAG Inspector
+          </h1>
+        </div>
+
+        <span className="text-[9px] px-2 py-0.5 border animate-pulse"
               style={{ color: "var(--mx-dim)", borderColor: "var(--mx-muted)" }}>
           LIVE
         </span>
 
-        {/* Controls */}
         <div className="flex items-center gap-3 ml-auto">
           <label className="text-[10px] flex items-center gap-2" style={{ color: "var(--mx-dim)" }}>
             DEPTH
@@ -185,7 +535,7 @@ export default function GraphPage() {
               value={limit}
               onChange={e => setLimit(Number(e.target.value))}
               className="text-[10px] px-1 py-0.5 rounded-none"
-              style={{ background: "#020802", border: "1px solid var(--mx-border)", color: "var(--mx-mid)" }}
+              style={{ background: "#010a01", border: "1px solid var(--mx-border)", color: "var(--mx-mid)" }}
             >
               <option value={40}>40</option>
               <option value={80}>80</option>
@@ -198,7 +548,7 @@ export default function GraphPage() {
             className="text-[10px] px-3 py-1 border transition-colors"
             style={{
               borderColor: paused ? "var(--mx-bright)" : "var(--mx-border)",
-              color: paused ? "var(--mx-bright)" : "var(--mx-dim)",
+              color:       paused ? "var(--mx-bright)" : "var(--mx-dim)",
             }}
           >
             {paused ? "▶ RESUME" : "⏸ PAUSE"}
@@ -207,158 +557,59 @@ export default function GraphPage() {
       </div>
 
       {error && (
-        <div className="card p-3 text-xs" style={{ borderColor: "var(--mx-error)", color: "var(--mx-error)" }}>
+        <div className="card p-3 text-xs shrink-0" style={{ borderColor: "var(--mx-error)", color: "var(--mx-error)" }}>
           ⚠ {error}
         </div>
       )}
 
       {/* Legend */}
-      <div className="flex items-center gap-6 text-[9px] uppercase tracking-widest" style={{ color: "var(--mx-muted)" }}>
+      <div className="flex items-center gap-6 text-[9px] uppercase tracking-widest shrink-0" style={{ color: "var(--mx-muted)" }}>
         <span className="flex items-center gap-2">
-          <span className="inline-block w-8 h-3 border" style={{ background: "#001a00", borderColor: "#39ff14" }} />
+          <span className="inline-block w-4 h-4 rounded-full border-2" style={{ background: "#0e2a0e", borderColor: "#39ff14" }} />
           chain block
         </span>
         <span className="flex items-center gap-2">
-          <span className="inline-block w-8 h-3 border" style={{ background: "#050505", borderColor: "#006616" }} />
+          <span className="inline-block w-4 h-4 rounded-full border-2" style={{ background: "rgba(239,68,68,0.18)", borderColor: "#ef4444" }} />
           non-chain
         </span>
         <span className="flex items-center gap-2">
-          <span className="inline-block w-8 border-t" style={{ borderColor: "rgba(57,255,20,0.45)" }} />
-          parent edge
+          <span className="inline-block w-4 h-4 rounded-full border-2" style={{ borderColor: "#f59e0b" }} />
+          selected
         </span>
-        <span className="ml-auto" style={{ color: "var(--mx-dim)" }}>
-          ← older &nbsp;&nbsp; newer →
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-2 h-2 rounded-full bg-amber-400" />
+          has user txs
+        </span>
+        <span className="ml-auto text-[8px]" style={{ color: "var(--mx-dim)" }}>
+          scroll to zoom · drag to pan · click to inspect
         </span>
       </div>
 
-      {/* DAG canvas */}
-      <div className="flex gap-4" style={{ height: "520px" }}>
-        {/* Scrollable SVG */}
-        <div
-          ref={scrollRef}
-          className="flex-1 overflow-x-auto overflow-y-auto card"
-          style={{ cursor: "default", minWidth: 0 }}
-        >
-          <svg
-            width={svgW}
-            height={svgH}
-            style={{ display: "block", background: C.bg }}
-          >
-            {/* Subtle horizontal grid lines */}
-            {Array.from({ length: Math.max(4, totalLanes) + 1 }, (_, i) => (
-              <line
-                key={`grid-h-${i}`}
-                x1={0} y1={MY + i * LANE_H - LANE_H / 2}
-                x2={svgW} y2={MY + i * LANE_H - LANE_H / 2}
-                stroke={C.gridLine} strokeWidth={1}
-              />
-            ))}
-
-            {/* DAA score column labels */}
-            {blocks
-              .filter((b, idx, arr) =>
-                arr.findIndex(x => x.daa_score === b.daa_score) === idx
-              )
-              .map(b => {
-                const pos = positions.get(b.hash);
-                if (!pos) return null;
-                return (
-                  <text
-                    key={`lbl-${b.daa_score}`}
-                    x={MX + pos.col * COL_W + NODE_W / 2}
-                    y={svgH - 6}
-                    textAnchor="middle"
-                    fontSize={8}
-                    fill={C.labelColor}
-                    fontFamily="monospace"
-                  >
-                    {b.daa_score}
-                  </text>
-                );
-              })}
-
-            {/* Edges (drawn first so nodes appear on top) */}
-            {blocks.map(child => {
-              const cp = positions.get(child.hash);
-              if (!cp) return null;
-              return child.parents.map(ph => {
-                const pp = positions.get(ph);
-                if (!pp) return null; // parent outside viewport
-                const parentBlock = blockMap.get(ph);
-                const isChainEdge = child.is_chain_block && parentBlock?.is_chain_block;
-                return (
-                  <path
-                    key={`e-${child.hash}-${ph}`}
-                    d={edgePath(pp.x, pp.y, cp.x, cp.y)}
-                    fill="none"
-                    stroke={isChainEdge ? C.edgeChain : C.edgeGhost}
-                    strokeWidth={isChainEdge ? 1.5 : 1}
-                  />
-                );
-              });
-            })}
-
-            {/* Nodes */}
-            {blocks.map(b => {
-              const pos = positions.get(b.hash);
-              if (!pos) return null;
-              const isSelected = selected?.hash === b.hash;
-              const isChain    = b.is_chain_block;
-
-              const fill   = isSelected ? C.selFill   : isChain ? C.chainFill  : C.ghostFill;
-              const stroke = isSelected ? C.selStroke : isChain ? C.chainStroke: C.ghostStroke;
-              const textC  = isChain ? C.chainText : C.ghostText;
-
-              return (
-                <g
-                  key={b.hash}
-                  onClick={() => setSelected(prev => prev?.hash === b.hash ? null : b)}
-                  style={{ cursor: "pointer" }}
-                >
-                  {/* Glow for chain blocks */}
-                  {isChain && (
-                    <rect
-                      x={pos.x - 2} y={pos.y - 2}
-                      width={NODE_W + 4} height={NODE_H + 4}
-                      rx={2} fill="none"
-                      stroke="rgba(57,255,20,0.12)"
-                      strokeWidth={4}
-                    />
-                  )}
-                  <rect
-                    x={pos.x} y={pos.y}
-                    width={NODE_W} height={NODE_H}
-                    rx={1}
-                    fill={fill}
-                    stroke={stroke}
-                    strokeWidth={isSelected ? 1.5 : 1}
-                  />
-                  {/* Center dot */}
-                  <circle
-                    cx={pos.x + NODE_W / 2}
-                    cy={pos.y + NODE_H / 2}
-                    r={2}
-                    fill={textC}
-                    opacity={0.8}
-                  />
-                </g>
-              );
-            })}
-          </svg>
-        </div>
+      {/* Canvas + side panel */}
+      <div className="flex gap-4 flex-1 min-h-0">
+        <canvas
+          ref={canvasRef}
+          className="flex-1 block"
+          style={{ cursor: stateRef.current.isDragging ? "grabbing" : "grab", minWidth: 0 }}
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onMouseLeave={onMouseLeave}
+          onWheel={onWheel}
+        />
 
         {/* Detail panel */}
         {selected && (
           <div
-            className="card flex flex-col gap-3 p-4 shrink-0"
-            style={{ width: 260, fontSize: "11px", color: "var(--mx-mid)" }}
+            className="card shrink-0 flex flex-col gap-3 p-4 overflow-y-auto"
+            style={{ width: 240, fontSize: "11px", color: "var(--mx-mid)" }}
           >
             <div className="flex items-center justify-between">
               <span className="text-[9px] uppercase tracking-widest" style={{ color: "var(--mx-dim)" }}>
                 Block Detail
               </span>
               <button
-                onClick={() => setSelected(null)}
+                onClick={() => { stateRef.current.selectedHash = null; setSelected(null); }}
                 className="text-[10px]"
                 style={{ color: "var(--mx-muted)" }}
               >
@@ -366,34 +617,33 @@ export default function GraphPage() {
               </button>
             </div>
 
+            {/* Status badge */}
+            <div className="text-center py-1 border text-[10px] font-bold tracking-widest"
+                 style={{
+                   borderColor: selected.is_chain_block ? "#39ff14" : "#ef4444",
+                   color:       selected.is_chain_block ? "#39ff14" : "#ef4444",
+                 }}>
+              {selected.is_chain_block ? "⬡ CHAIN BLOCK" : "◇ NON-CHAIN"}
+            </div>
+
             {[
-              { label: "Hash",      value: shortHash(selected.hash, 10), mono: true },
-              { label: "DAA Score", value: selected.daa_score.toLocaleString('en-US') },
-              { label: "Blue Score",value: selected.blue_score.toLocaleString('en-US') },
-              { label: "TX Count",  value: selected.tx_count.toString() },
-              { label: "Status",    value: selected.is_chain_block ? "CHAIN" : "NON-CHAIN" },
-              { label: "Time",      value: formatTimestamp(selected.timestamp_ms) },
-              { label: "Parents",   value: `${selected.parents.length}` },
+              { label: "Hash",       value: shortHash(selected.hash, 10), mono: true },
+              { label: "DAA Score",  value: selected.daa_score.toLocaleString('en-US') },
+              { label: "Blue Score", value: selected.blue_score.toLocaleString('en-US') },
+              { label: "TX Count",   value: selected.tx_count.toString() },
+              { label: "Time",       value: formatTimestamp(selected.timestamp_ms) },
+              { label: "Parents",    value: `${selected.parents.length}` },
             ].map(({ label, value, mono }) => (
               <div key={label} className="flex flex-col gap-0.5">
                 <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--mx-dim)" }}>
                   {label}
                 </span>
-                <span
-                  style={{
-                    color: label === "Status"
-                      ? (selected.is_chain_block ? "var(--mx-bright)" : "var(--mx-muted)")
-                      : "var(--mx-mid)",
-                    fontFamily: mono ? "monospace" : undefined,
-                    fontSize: "10px",
-                  }}
-                >
+                <span style={{ fontFamily: mono ? "monospace" : undefined, fontSize: "10px" }}>
                   {value}
                 </span>
               </div>
             ))}
 
-            {/* Parent hashes */}
             {selected.parents.length > 0 && (
               <div className="flex flex-col gap-1">
                 <span className="text-[9px] uppercase tracking-wider" style={{ color: "var(--mx-dim)" }}>
@@ -424,32 +674,14 @@ export default function GraphPage() {
       </div>
 
       {/* Stats bar */}
-      <div className="flex items-center gap-6 text-[9px] uppercase tracking-widest border-t pt-3"
+      <div className="flex items-center gap-6 text-[9px] uppercase tracking-widest border-t pt-2 shrink-0"
            style={{ borderColor: "var(--mx-border)", color: "var(--mx-muted)" }}>
-        <span>
-          <span style={{ color: "var(--mx-mid)" }}>{blocks.length}</span> blocks
-        </span>
-        <span>
-          <span style={{ color: "var(--mx-bright)" }}>
-            {blocks.filter(b => b.is_chain_block).length}
-          </span> chain
-        </span>
-        <span>
-          <span style={{ color: "var(--mx-dim)" }}>
-            {blocks.filter(b => !b.is_chain_block).length}
-          </span> non-chain
-        </span>
-        <span>
-          <span style={{ color: "var(--mx-mid)" }}>{totalCols}</span> daa columns
-        </span>
-        <span>
-          <span style={{ color: "var(--mx-mid)" }}>
-            {blocks.length > 0 ? blocks[blocks.length - 1].daa_score.toLocaleString('en-US') : "—"}
-          </span> tip daa
-        </span>
-        {paused && (
-          <span style={{ color: "var(--mx-bright)" }}>⏸ PAUSED</span>
-        )}
+        <span><span style={{ color: "var(--mx-mid)" }}>{stats.total}</span> blocks</span>
+        <span><span style={{ color: "#39ff14" }}>{stats.chain}</span> chain</span>
+        <span><span style={{ color: "#ef4444" }}>{stats.ghost}</span> non-chain</span>
+        <span><span style={{ color: "var(--mx-mid)" }}>{stats.cols}</span> daa cols</span>
+        <span>tip <span style={{ color: "var(--mx-mid)" }}>{stats.tip.toLocaleString('en-US')}</span></span>
+        {paused && <span style={{ color: "var(--mx-bright)" }}>⏸ PAUSED</span>}
       </div>
     </div>
   );
